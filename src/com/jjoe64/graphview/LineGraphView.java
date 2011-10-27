@@ -2,100 +2,186 @@ package com.jjoe64.graphview;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Path;
 
 /**
  * Line Graph View. This draws a line chart.
+ * 
  * @author jjoe64 - jonas gehring - http://www.jjoe64.com
- *
- * Copyright (C) 2011 Jonas Gehring
- * Licensed under the GNU Lesser General Public License (LGPL)
- * http://www.gnu.org/licenses/lgpl.html
+ * 
+ *         Copyright (C) 2011 Jonas Gehring Licensed under the GNU Lesser
+ *         General Public License (LGPL) http://www.gnu.org/licenses/lgpl.html
  */
 public class LineGraphView extends GraphView {
-	private final Paint paintBackground;
-	private boolean drawBackground;
+	
+	/**used to fill the area below the graph line*/
+	private final Paint mFillPaint;
+	
+	/**
+	 * the graph line is drawn using two lines.
+	 * one outer line which is thicker and darker than
+	 * the inner lighter line
+	 */ 
+	private final Paint mInnerPaint;
+	private final Paint mOuterPaint;
+	
 
+	/**transforms data points into screen points**/
+	private final Matrix mViewPortMatrix = new Matrix();
+
+	/**if true the area below the graph line will be filled*/
+	private boolean drawBackground = false;
+	
+	/** if true graph line will be smoothed by a quadratic fit function*/
+	private boolean mSmoothLine = false;
+
+	
+	/**helpers to avoit 'new' during draw calls*/
+	private final float[] mPoints =new float[2];
+	private final Path mPath = new Path();
+	private final Path mClosedPath = new Path();
+	
 	public LineGraphView(Context context, String title) {
 		super(context, title);
 
-		paintBackground = new Paint();
-		paintBackground.setARGB(255, 20, 40, 60);
-		paintBackground.setStrokeWidth(4);
+		mFillPaint = new Paint() {
+			{
+				setStyle(Paint.Style.FILL);
+				setARGB(255, 20, 40, 60);
+				setStrokeWidth(4);
+			}
+		};
+
+		mInnerPaint = new Paint() {
+			{
+				setStyle(Paint.Style.STROKE);
+				setStrokeCap(Paint.Cap.ROUND);
+				setStrokeWidth(3.0f);
+				//setMaskFilter(new BlurMaskFilter(3, Blur.SOLID));
+				setAntiAlias(true);
+			}
+		};
+
+		mOuterPaint = new Paint() {
+			{
+				setStyle(Paint.Style.STROKE);
+				setAntiAlias(true);
+				setStrokeWidth(5.0f);
+				setStrokeCap(Cap.ROUND);
+			}
+		};
+
+	}
+	
+	/**
+	 * returns the color value which is used to draw the outer path the graph line
+	 * @param innerColor
+	 * @return color which is half as dark as innerColor
+	 */
+	private int calculateOuterColor(int innerColor){
+		int a = Color.alpha(innerColor);
+		int r = Color.red(innerColor);
+		int g = Color.green(innerColor);
+		int b = Color.blue(innerColor);
+		return Color.argb(a, r>>1, g>>1, b>>1);
+	}
+	/**
+	 * returns the color value which is used to fill the area below graph line
+	 * @param innerColor
+	 * @return color which is half as dark as innerColor
+	 */
+	private int calculateFillColor(int innerColor){
+		int a = Color.alpha(innerColor);
+		int r = Color.red(innerColor);
+		int g = Color.green(innerColor);
+		int b = Color.blue(innerColor);
+		return Color.argb(a>>1, r, g, b);
 	}
 
 	@Override
-	public void drawSeries(Canvas canvas, GraphViewData[] values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY, float horstart) {
-		// draw background
-		double lastEndY = 0;
-		double lastEndX = 0;
-		if (drawBackground) {
-			float startY = graphheight + border;
-			for (int i = 0; i < values.length; i++) {
-				double valY = values[i].valueY - minY;
-				double ratY = valY / diffY;
-				double y = graphheight * ratY;
+	public void drawSeries(Canvas canvas, int color, GraphViewData[] values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY, float horstart) {
+		float startX = 0;
+		float lastX = 0;
+		float lastY = 0;
+		mPath.reset();
 
-				double valX = values[i].valueX - minX;
-				double ratX = valX / diffX;
-				double x = graphwidth * ratX;
+		mInnerPaint.setColor(color);
+		mOuterPaint.setColor(calculateOuterColor(color));
+		mFillPaint.setColor(calculateFillColor(color));
 
-				float endX = (float) x + (horstart + 1);
-				float endY = (float) (border - y) + graphheight +2;
+		/*transform to points into screen space*/
+		mViewPortMatrix.reset();
+		//1. scale
+		mViewPortMatrix.postTranslate((float)-minX, (float)-minY);
+		mViewPortMatrix.postScale((float)(graphwidth / diffX),(float)(graphheight / diffY));
+		//2. flip vertically
+		mViewPortMatrix.postScale(1,-1);
+		mViewPortMatrix.postTranslate(0,graphheight);
+		//3. adjust for borders
+		mViewPortMatrix.postTranslate(horstart, border);
+		
 
-				if (i > 0) {
-					// fill space between last and current point
-					int numSpace = (int) ((endX - lastEndX) / 3f) +1;
-					for (int xi=0; xi<numSpace; xi++) {
-						float spaceX = (float) (lastEndX + ((endX-lastEndX)*xi/(numSpace-1)));
-						float spaceY = (float) (lastEndY + ((endY-lastEndY)*xi/(numSpace-1)));
-
-						// start => bottom edge
-						float startX = spaceX;
-
-						// do not draw over the left edge
-						if (startX-horstart > 1) {
-							canvas.drawLine(startX, startY, spaceX, spaceY, paintBackground);
-						}
-					}
-				}
-
-				lastEndY = endY;
-				lastEndX = endX;
-			}
-		}
-
-		// draw data
-		lastEndY = 0;
-		lastEndX = 0;
 		for (int i = 0; i < values.length; i++) {
-			double valY = values[i].valueY - minY;
-			double ratY = valY / diffY;
-			double y = graphheight * ratY;
-
-			double valX = values[i].valueX - minX;
-			double ratX = valX / diffX;
-			double x = graphwidth * ratX;
+			
+			mPoints[0] = (float)values[i].valueX;
+			mPoints[1] = (float)values[i].valueY;
+			mViewPortMatrix.mapPoints(mPoints);
 
 			if (i > 0) {
-				float startX = (float) lastEndX + (horstart + 1);
-				float startY = (float) (border - lastEndY) + graphheight;
-				float endX = (float) x + (horstart + 1);
-				float endY = (float) (border - y) + graphheight;
+				if (mSmoothLine){
+					mPath.quadTo(lastX, lastY, (mPoints[0]+ lastX) / 2, (mPoints[1]+lastY)/2);
+				} else {
+					mPath.lineTo(mPoints[0], mPoints[1]);					
+				}
+				
 
-				canvas.drawLine(startX, startY, endX, endY, paint);
+			} else {
+				startX = mPoints[0];
+				mPath.moveTo(mPoints[0], mPoints[1]);
 			}
-			lastEndY = y;
-			lastEndX = x;
+			lastX = mPoints[0];
+			lastY = mPoints[1];
 		}
+		mPath.lineTo(mPoints[0], mPoints[1]);
+		if (drawBackground) {
+			mClosedPath.reset();
+			mClosedPath.addPath(mPath);
+			mClosedPath.lineTo(mPoints[0], graphheight + border);
+			mClosedPath.lineTo(startX, graphheight + border);
+			mClosedPath.close();
+			canvas.drawPath(mClosedPath, mFillPaint);
+		}
+		canvas.drawPath(mPath, mOuterPaint);
+		canvas.drawPath(mPath, mInnerPaint);
 	}
 
+	/**
+	 * 
+	 * @return if true, graph line will be smoothed using a quadratic fit function
+	 */
+	public boolean getSmoothing(){
+		return mSmoothLine;
+	}
+	
+	/**
+	 * 
+	 * @param value 
+	 * 				true to smooth the graph line with a quadratic fit function 
+	 */
+	public void setSmoothing(boolean value){
+		this.mSmoothLine = value;
+	}
+	
 	public boolean getDrawBackground() {
 		return drawBackground;
 	}
 
 	/**
-	 * @param drawBackground true for a light blue background under the graph line
+	 * @param drawBackground
+	 *            true to fill the area below the graph line
 	 */
 	public void setDrawBackground(boolean drawBackground) {
 		this.drawBackground = drawBackground;

@@ -13,7 +13,7 @@ public class BarGraphView extends GraphView {
 	}
 
 	@Override
-	public void drawSeries(Canvas canvas, GraphViewData[] values, float graphwidth, float graphheight,
+	public void drawSeries(Canvas canvas,int color,  GraphViewData[] values, float graphwidth, float graphheight,
 			float border, double minX, double minY, double diffX, double diffY,
 			float horstart) {
 		float colwidth = (graphwidth - (2 * border)) / values.length;
