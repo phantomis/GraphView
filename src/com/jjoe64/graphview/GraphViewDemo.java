@@ -22,10 +22,7 @@ public class GraphViewDemo extends Activity {
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-		LineGraphView graphView = new LineGraphView(
-				this
-				, "GraphViewDemo"
-		);
+		LineGraphView graphView = new LineGraphView(this);
 		graphView.addSeries(new GraphViewSeries(new GraphViewData[] {
 				new GraphViewData(1, 2.0d)
 				, new GraphViewData(2, 1.5d)

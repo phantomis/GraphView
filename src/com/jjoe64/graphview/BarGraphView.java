@@ -9,7 +9,7 @@ import android.graphics.Canvas;
  */
 public class BarGraphView extends GraphView {
 	public BarGraphView(Context context, String title) {
-		super(context, title);
+		super(context);
 	}
 
 	@Override

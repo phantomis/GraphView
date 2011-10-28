@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.util.AttributeSet;
 
 /**
  * Line Graph View. This draws a line chart.
@@ -18,15 +19,15 @@ import android.graphics.Path;
 public class LineGraphView extends GraphView {
 	
 	/**used to fill the area below the graph line*/
-	private final Paint mFillPaint;
+	private Paint mFillPaint;
 	
 	/**
 	 * the graph line is drawn using two lines.
 	 * one outer line which is thicker and darker than
 	 * the inner lighter line
 	 */ 
-	private final Paint mInnerPaint;
-	private final Paint mOuterPaint;
+	private Paint mInnerPaint;
+	private Paint mOuterPaint;
 	
 
 	/**transforms data points into screen points**/
@@ -44,14 +45,11 @@ public class LineGraphView extends GraphView {
 	private final Path mPath = new Path();
 	private final Path mClosedPath = new Path();
 	
-	public LineGraphView(Context context, String title) {
-		super(context, title);
-
+	private void init(){
 		mFillPaint = new Paint() {
 			{
 				setStyle(Paint.Style.FILL);
 				setARGB(255, 20, 40, 60);
-				setStrokeWidth(4);
 			}
 		};
 
@@ -59,7 +57,7 @@ public class LineGraphView extends GraphView {
 			{
 				setStyle(Paint.Style.STROKE);
 				setStrokeCap(Paint.Cap.ROUND);
-				setStrokeWidth(3.0f);
+				setStrokeWidth(2.0f);
 				//setMaskFilter(new BlurMaskFilter(3, Blur.SOLID));
 				setAntiAlias(true);
 			}
@@ -73,7 +71,16 @@ public class LineGraphView extends GraphView {
 				setStrokeCap(Cap.ROUND);
 			}
 		};
-
+	}
+	
+	public LineGraphView(Context context){
+		super(context);
+		init();
+	}
+	
+	public LineGraphView(Context context, AttributeSet set) {
+		super(context, set);
+		init();
 	}
 	
 	/**
@@ -91,7 +98,7 @@ public class LineGraphView extends GraphView {
 	/**
 	 * returns the color value which is used to fill the area below graph line
 	 * @param innerColor
-	 * @return color which is half as dark as innerColor
+	 * @return transparent version of innerColor
 	 */
 	private int calculateFillColor(int innerColor){
 		int a = Color.alpha(innerColor);
@@ -112,7 +119,7 @@ public class LineGraphView extends GraphView {
 		mOuterPaint.setColor(calculateOuterColor(color));
 		mFillPaint.setColor(calculateFillColor(color));
 
-		/*transform to points into screen space*/
+		/*transform data points into screen space*/
 		mViewPortMatrix.reset();
 		//1. scale
 		mViewPortMatrix.postTranslate((float)-minX, (float)-minY);
@@ -123,7 +130,6 @@ public class LineGraphView extends GraphView {
 		//3. adjust for borders
 		mViewPortMatrix.postTranslate(horstart, border);
 		
-
 		for (int i = 0; i < values.length; i++) {
 			
 			mPoints[0] = (float)values[i].valueX;
@@ -136,8 +142,6 @@ public class LineGraphView extends GraphView {
 				} else {
 					mPath.lineTo(mPoints[0], mPoints[1]);					
 				}
-				
-
 			} else {
 				startX = mPoints[0];
 				mPath.moveTo(mPoints[0], mPoints[1]);
@@ -145,7 +149,11 @@ public class LineGraphView extends GraphView {
 			lastX = mPoints[0];
 			lastY = mPoints[1];
 		}
-		mPath.lineTo(mPoints[0], mPoints[1]);
+		
+		if (mSmoothLine){
+			mPath.lineTo(mPoints[0], mPoints[1]);			
+		}
+		
 		if (drawBackground) {
 			mClosedPath.reset();
 			mClosedPath.addPath(mPath);
