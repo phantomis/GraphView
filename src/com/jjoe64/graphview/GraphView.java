@@ -79,6 +79,11 @@ abstract public class GraphView extends LinearLayout {
 
 		}
 
+		public void onViewportChanghed(){
+			final double scale = getWidth() / viewportSize;
+			mTotalGraphWidth = getMaxX(true) * scale;			
+		}
+		
 		/**
 		 * @param context
 		 */
@@ -220,13 +225,15 @@ abstract public class GraphView extends LinearLayout {
 	public void fling(int velocityX) {
 		int width = (int) mContentView.mTotalGraphWidth;
 		int right = (int) mContentView.graphwidth;
+		Log.i("FLING","velocity = " + velocityX + " + maxx = " + (width-right));
+
 		mScroller.fling((int) mContentView.mCurrentScrollX, 0, velocityX, 0, 0,  width-right, 0, 0);
 
 		mContentView.invalidate();
 	}
 
 	@Override
-	public boolean onInterceptTouchEvent(MotionEvent ev) {
+	public boolean onInterceptTouchEvent(MotionEvent ev) {		
 		/*
 		 * This method JUST determines whether we want to intercept the motion.
 		 * If we return true, onMotionEvent will be called and we do the actual
@@ -246,6 +253,8 @@ abstract public class GraphView extends LinearLayout {
 			mIsBeingDragged = false;
 			return false;
 		}
+		
+
 
 		final float x = ev.getX();
 
@@ -288,7 +297,7 @@ abstract public class GraphView extends LinearLayout {
 
 		/*
 		 * The only time we want to intercept motion events is if we are in the
-		 * drag mode.
+		 * drag or zoom mode.
 		 */
 		return mIsBeingDragged;
 	}
@@ -296,9 +305,17 @@ abstract public class GraphView extends LinearLayout {
 	@Override
 	public boolean onTouchEvent(MotionEvent ev) {
 
+		// first scale
+		if (scalable && scaleDetector != null) {
+			scaleDetector.onTouchEvent(ev);
+			scaleDetector.isInProgress();
+		}
+
+		
 		if (!canScroll()) {
 			return false;
 		}
+
 
 		if (mVelocityTracker == null) {
 			mVelocityTracker = VelocityTracker.obtain();
@@ -333,7 +350,6 @@ abstract public class GraphView extends LinearLayout {
 			int initialVelocity = (int) velocityTracker.getXVelocity();
 
 			if ((Math.abs(initialVelocity) > mMinimumVelocity)) {
-				Log.i("DEBUG","FLING");
 				fling(-initialVelocity);
 			}
 
@@ -786,6 +802,7 @@ abstract public class GraphView extends LinearLayout {
 					verlabels = null;
 					horlabels = null;
 					numberformatter = null;
+					mContentView.onViewportChanghed();
 					invalidate();
 					viewVerLabels.invalidate();
 					return true;
@@ -829,5 +846,6 @@ abstract public class GraphView extends LinearLayout {
 	public void setViewPort(double start, double size) {
 		viewportStart = start;
 		viewportSize = size;
+		mContentView.onViewportChanghed();
 	}
 }
