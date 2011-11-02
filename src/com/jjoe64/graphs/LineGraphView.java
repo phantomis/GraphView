@@ -1,12 +1,20 @@
-package com.jjoe64.graphview;
+package com.jjoe64.graphs;
+
+import java.util.List;
+import java.util.WeakHashMap;
 
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Paint.Cap;
 import android.graphics.Path;
 import android.util.AttributeSet;
+
+import com.jjoe64.graphview.GraphView;
+import com.jjoe64.graphview.GraphViewSeries;
+import com.jjoe64.graphview.GraphViewSeries.GraphViewData;
 
 /**
  * Line Graph View. This draws a line chart.
@@ -42,8 +50,10 @@ public class LineGraphView extends GraphView {
 	
 	/**helpers to avoit 'new' during draw calls*/
 	private final float[] mPoints =new float[2];
-	private final Path mPath = new Path();
-	private final Path mClosedPath = new Path();
+	private Path mPath = new Path();
+	private Path mClosedPath = new Path();
+	
+	WeakHashMap<GraphViewSeries, Path> mCachedPath = new WeakHashMap<GraphViewSeries, Path>();
 	
 	private void init(){
 		mFillPaint = new Paint() {
@@ -107,13 +117,15 @@ public class LineGraphView extends GraphView {
 		int b = Color.blue(innerColor);
 		return Color.argb(a>>1, r, g, b);
 	}
+	
 
 	@Override
-	public void drawSeries(Canvas canvas, int color, GraphViewData[] values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY, float horstart) {
+	public void drawSeries(Canvas canvas, int color, List<GraphViewData> values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY, float horstart) {
 		float startX = 0;
 		float lastX = 0;
 		float lastY = 0;
-		mPath.reset();
+		mPath = new Path(); //bug with hardware acceleration forces me to create a new path
+		mPath.incReserve(values.size());
 
 		mInnerPaint.setColor(color);
 		mOuterPaint.setColor(calculateOuterColor(color));
@@ -130,10 +142,10 @@ public class LineGraphView extends GraphView {
 		//3. adjust for borders
 		mViewPortMatrix.postTranslate(horstart, border);
 		
-		for (int i = 0; i < values.length; i++) {
+		for (int i = 0; i < values.size(); i++) {
 			
-			mPoints[0] = (float)values[i].valueX;
-			mPoints[1] = (float)values[i].valueY;
+			mPoints[0] = (float)values.get(i).valueX;
+			mPoints[1] = (float)values.get(i).valueY;
 			mViewPortMatrix.mapPoints(mPoints);
 
 			if (i > 0) {
@@ -155,15 +167,16 @@ public class LineGraphView extends GraphView {
 		}
 		
 		if (drawBackground) {
-			mClosedPath.reset();
-			mClosedPath.addPath(mPath);
+			//mClosedPath.reset();
+			//mClosedPath.addPath(mPath);
+			mClosedPath = new Path(mPath);
 			mClosedPath.lineTo(mPoints[0], graphheight + border);
 			mClosedPath.lineTo(startX, graphheight + border);
 			mClosedPath.close();
 			canvas.drawPath(mClosedPath, mFillPaint);
 		}
 		canvas.drawPath(mPath, mOuterPaint);
-		canvas.drawPath(mPath, mInnerPaint);
+		canvas.drawPath(mPath, mInnerPaint);		
 	}
 
 	/**

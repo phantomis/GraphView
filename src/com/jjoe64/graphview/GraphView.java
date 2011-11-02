@@ -2,9 +2,7 @@ package com.jjoe64.graphview;
 
 import java.text.NumberFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 import android.content.Context;
@@ -14,10 +12,17 @@ import android.graphics.Paint;
 import android.graphics.Paint.Align;
 import android.graphics.RectF;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
+import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.Scroller;
 
+import com.jjoe64.graphs.LineGraphView;
+import com.jjoe64.graphview.GraphViewSeries.GraphViewData;
 import com.jjoe64.graphview.compatible.ScaleGestureDetector;
 
 /**
@@ -37,15 +42,42 @@ abstract public class GraphView extends LinearLayout {
 		static final float BORDER = 20;
 		static final float VERTICAL_LABEL_WIDTH = 100;
 		static final float HORIZONTAL_LABEL_HEIGHT = 80;
-		static final int DEFAULT_MIN_X = 0;
-		static final int DEFAULT_MIN_Y = 0;
-		static final int DEFAULT_MAX_X = 100;
-		static final int DEFAULT_MAX_Y = 100;		
+	}
+
+	private boolean mIsBeingDragged = false;
+	/**
+	 * Position of the last motion event.
+	 */
+	private float mLastMotionX;
+	private Scroller mScroller;
+	private int mTouchSlop;
+	private int mMinimumVelocity;
+	private int mMaximumVelocity;
+
+	/**
+	 * Determines speed during touch scrolling
+	 */
+	private VelocityTracker mVelocityTracker;
+
+	private boolean canScroll() {
+		if (scrollable && viewportSize < getMaxX(true)) {
+			return true;
+		}
+		return false;
 	}
 
 	private class GraphViewContentView extends View {
-		private float lastTouchEventX;
 		private float graphwidth;
+		double mTotalGraphWidth;
+		double mCurrentScrollX;
+
+		@Override
+		protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+			super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+			final double scale = getWidth() / viewportSize;
+			mTotalGraphWidth = getMaxX(true) * scale;
+
+		}
 
 		/**
 		 * @param context
@@ -55,6 +87,17 @@ abstract public class GraphView extends LinearLayout {
 			setLayoutParams(new LayoutParams(LayoutParams.FILL_PARENT, LayoutParams.FILL_PARENT));
 		}
 
+		public void computeScroll() {
+
+			if (mScroller.computeScrollOffset()) {
+				int x = mScroller.getCurrX();
+				onMoveGesture((float) (mCurrentScrollX - x));
+				mCurrentScrollX = x;
+				// Keep on drawing until the animation has finished.
+				postInvalidate();
+			}
+		}
+
 		/**
 		 * @param canvas
 		 */
@@ -62,6 +105,7 @@ abstract public class GraphView extends LinearLayout {
 		protected void onDraw(Canvas canvas) {
 			synchronized (GraphView.this) {
 
+				computeScroll();
 				// normal
 				paint.setStrokeWidth(0);
 
@@ -119,26 +163,36 @@ abstract public class GraphView extends LinearLayout {
 						paint.setStrokeWidth(3);
 
 						for (int i = 0; i < graphSeries.size(); i++) {
-							paint.setColor(graphSeries.get(i).color);
-							drawSeries(canvas, graphSeries.get(i).color, _values(i), graphwidth, graphheight, border, minX, minY, diffX, diffY, horstart);
+							if (graphSeries.get(i).isVisible()) {
+								paint.setColor(graphSeries.get(i).color);
+								List<GraphViewData> valuesToDraw = _values(i);
+								if (valuesToDraw != null) {
+									drawSeries(canvas, graphSeries.get(i).color, valuesToDraw, graphwidth, graphheight, border, minX, minY, diffX, diffY, horstart);
+								}
+							}
 						}
 
 						if (showLegend)
 							drawLegend(canvas, height, width);
 					}
+
 				}
 			}
-
 		}
 
 		private void onMoveGesture(float f) {
 			// view port update
 			if (viewportSize != 0 && graphSeries.size() != 0) {
-				viewportStart -= f * viewportSize / graphwidth;
+				double maxX = getMaxX(true);
+				if (viewportStart + viewportSize >= maxX && f < 0) {
+					return;
+				}
+				final double scale = viewportSize / graphwidth;
+
+				viewportStart -= f * scale;
 
 				// minimal and maximal view limit
 				double minX = getMinX(true);
-				double maxX = getMaxX(true);
 				if (viewportStart < minX) {
 					viewportStart = minX;
 				} else if (viewportStart + viewportSize > maxX) {
@@ -153,176 +207,143 @@ abstract public class GraphView extends LinearLayout {
 			invalidate();
 		}
 
-		/**
-		 * @param event
+	}
+
+	/**
+	 * Fling the scroll view
+	 * 
+	 * @param velocityX
+	 *            The initial velocity in the X direction. Positive numbers mean
+	 *            that the finger/curor is moving down the screen, which means
+	 *            we want to scroll towards the left.
+	 */
+	public void fling(int velocityX) {
+		int width = (int) mContentView.mTotalGraphWidth;
+		int right = (int) mContentView.graphwidth;
+		mScroller.fling((int) mContentView.mCurrentScrollX, 0, velocityX, 0, 0,  width-right, 0, 0);
+
+		mContentView.invalidate();
+	}
+
+	@Override
+	public boolean onInterceptTouchEvent(MotionEvent ev) {
+		/*
+		 * This method JUST determines whether we want to intercept the motion.
+		 * If we return true, onMotionEvent will be called and we do the actual
+		 * scrolling there.
 		 */
-		@Override
-		public boolean onTouchEvent(MotionEvent event) {
-			if (!isScrollable()) {
-				return super.onTouchEvent(event);
-			}
 
-			boolean handled = false;
-			// first scale
-			if (scalable && scaleDetector != null) {
-				scaleDetector.onTouchEvent(event);
-				handled = scaleDetector.isInProgress();
-			}
-			if (!handled) {
-				// if not scaled, scroll
-				if ((event.getAction() & MotionEvent.ACTION_DOWN) == MotionEvent.ACTION_DOWN) {
-					handled = true;
-				}
-				if ((event.getAction() & MotionEvent.ACTION_UP) == MotionEvent.ACTION_UP) {
-					lastTouchEventX = 0;
-					handled = true;
-				}
-				if ((event.getAction() & MotionEvent.ACTION_MOVE) == MotionEvent.ACTION_MOVE) {
-					if (lastTouchEventX != 0) {
-						onMoveGesture(event.getX() - lastTouchEventX);
-					}
-					lastTouchEventX = event.getX();
-					handled = true;
-				}
-			}
-			return handled;
+		/*
+		 * Shortcut the most recurring case: the user is in the dragging state
+		 * and he is moving his finger. We want to intercept this motion.
+		 */
+		final int action = ev.getAction();
+		if ((action == MotionEvent.ACTION_MOVE) && (mIsBeingDragged)) {
+			return true;
 		}
+
+		if (!canScroll()) {
+			mIsBeingDragged = false;
+			return false;
+		}
+
+		final float x = ev.getX();
+
+		switch (action) {
+		case MotionEvent.ACTION_MOVE:
+			/*
+			 * mIsBeingDragged == false, otherwise the shortcut would have
+			 * caught it. Check whether the user has moved far enough from his
+			 * original down touch.
+			 */
+
+			/*
+			 * Locally do absolute value. mLastMotionX is set to the x value of
+			 * the down event.
+			 */
+			final int xDiff = (int) Math.abs(x - mLastMotionX);
+			if (xDiff > mTouchSlop) {
+				mIsBeingDragged = true;
+			}
+			break;
+
+		case MotionEvent.ACTION_DOWN:
+			/* Remember location of down touch */
+			mLastMotionX = x;
+
+			/*
+			 * If being flinged and user touches the screen, initiate drag;
+			 * otherwise don't. mScroller.isFinished should be false when being
+			 * flinged.
+			 */
+			mIsBeingDragged = !mScroller.isFinished();
+			break;
+
+		case MotionEvent.ACTION_CANCEL:
+		case MotionEvent.ACTION_UP:
+			/* Release the drag */
+			mIsBeingDragged = false;
+			break;
+		}
+
+		/*
+		 * The only time we want to intercept motion events is if we are in the
+		 * drag mode.
+		 */
+		return mIsBeingDragged;
 	}
 
-	/**
-	 * one data set for a graph series
-	 */
-	static public class GraphViewData {
-		public final double valueX;
-		public final double valueY;
+	@Override
+	public boolean onTouchEvent(MotionEvent ev) {
 
-		public GraphViewData(double valueX, double valueY) {
-			super();
-			this.valueX = valueX;
-			this.valueY = valueY;
+		if (!canScroll()) {
+			return false;
 		}
-	}
 
-	/**
-	 * a graph series
-	 */
-	static public class GraphViewSeries {
-		final String description;
-		final int color;
-		private double minX, maxX, minY, maxY;
-		//TODO maybe changing to treeset is benefitial so that the list is sorted even after adding arbitrary new values
-		final ArrayList<GraphViewData> values = new ArrayList<GraphViewData>();
-		private final Comparator<GraphViewData> mXDataComparator = new XDataComparator();
-		private final Comparator<GraphViewData> mYDataComparator = new YDataComparator();
-		
-		private static class XDataComparator implements Comparator<GraphViewData> {
+		if (mVelocityTracker == null) {
+			mVelocityTracker = VelocityTracker.obtain();
+		}
+		mVelocityTracker.addMovement(ev);
 
-			@Override
-			public int compare(GraphViewData object1, GraphViewData object2) {
-				return Double.compare(object1.valueX, object2.valueX);
+		final int action = ev.getAction();
+		final float x = ev.getX();
+
+		switch (action) {
+		case MotionEvent.ACTION_DOWN:
+			/*
+			 * If being flinged and user touches, stop the fling. isFinished
+			 * will be false if being flinged.
+			 */
+			if (!mScroller.isFinished()) {
+				mScroller.abortAnimation();
 			}
-			
-		}
-		private static class YDataComparator implements Comparator<GraphViewData> {
 
-			@Override
-			public int compare(GraphViewData object1, GraphViewData object2) {
-				return Double.compare(object1.valueY, object2.valueY);
+			// Remember where the motion event started
+			mLastMotionX = x;
+			break;
+		case MotionEvent.ACTION_MOVE:
+			// Scroll to follow the motion event
+			final int deltaX = (int) (x - mLastMotionX);
+			mLastMotionX = x;
+			mContentView.onMoveGesture(deltaX);
+			break;
+		case MotionEvent.ACTION_UP:
+			final VelocityTracker velocityTracker = mVelocityTracker;
+			velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
+			int initialVelocity = (int) velocityTracker.getXVelocity();
+
+			if ((Math.abs(initialVelocity) > mMinimumVelocity)) {
+				Log.i("DEBUG","FLING");
+				fling(-initialVelocity);
 			}
-			
-		}
 
-		public GraphViewSeries(List<GraphViewData> values) {
-			this(null, 0xff0077cc, values);
-		}
-
-		public GraphViewSeries(GraphViewData[] values) {
-			this(null, 0xff0077cc, Arrays.asList(values));
-		}
-
-		public GraphViewSeries(Integer color, GraphViewData[] values) {
-			this(null, (color == null) ? 0xff0077cc : color, Arrays.asList(values));
-		}
-
-		public GraphViewSeries(Integer color, List<GraphViewData> values) {
-			this(null, (color == null) ? 0xff0077cc : color, values);
-		}
-
-		public GraphViewSeries(String description, Integer color, GraphViewData[] values) {
-			this(description, (color == null) ? 0xff0077cc : color, Arrays.asList(values));
-		}
-
-		public GraphViewSeries(String description, Integer color, List<GraphViewData> values) {
-			this.description = description;
-			if (color == null) {
-				color = 0xff0077cc; // blue version
-			}
-			this.color = color;
-			this.values.addAll(values);
-			Collections.sort(this.values,mXDataComparator);
-			updateAllMinMaxValues();
-		}
-
-		private void updateAllMinMaxValues(){
-			updateMaxX();
-			updateMaxY();
-			updateMinX();
-			updateMinY();			
-		}
-		
-		private void updateMinY(){
-			if (values.size()>0){
-				minY = Collections.min(values,mYDataComparator).valueY;
-			} else {
-				minY = GraphViewConfig.DEFAULT_MIN_Y;
-			}			
-		}
-		
-		private void updateMaxY(){
-			if (values.size()>0){
-				maxY = Collections.max(values,mYDataComparator).valueY;
-			} else {
-				maxY = GraphViewConfig.DEFAULT_MAX_Y;
-			}			
-		}
-		
-		private void updateMinX(){
-			if (values.size()>0){
-				minX = values.get(0).valueX;
-			} else {
-				minX = GraphViewConfig.DEFAULT_MIN_X;
+			if (mVelocityTracker != null) {
+				mVelocityTracker.recycle();
+				mVelocityTracker = null;
 			}
 		}
-		private void updateMaxX(){
-			if (values.size()>0){
-				maxX = values.get(values.size()-1).valueX;
-			} else {
-				maxX = GraphViewConfig.DEFAULT_MAX_X;
-			}
-		}
-		
-		public synchronized void add(GraphViewData data){
-			GraphViewData last = this.values.get(values.size()-1);
-			if (data.valueX <= last.valueX){
-				throw new IllegalArgumentException("x value must be larger than the last x values in the series");
-			}
-			this.values.add(data);
-			updateAllMinMaxValues();
-		}
-	
-		
-		public synchronized double getMinX(){
-			return minX;
-		}
-		public synchronized double getMinY(){
-			return minY;
-		}
-		public synchronized double getMaxX(){
-			return maxX;
-		}		
-		public synchronized double getMaxY(){
-			return maxY;
-		}
+
+		return true;
 	}
 
 	public enum LegendAlign {
@@ -387,6 +408,7 @@ abstract public class GraphView extends LinearLayout {
 	private boolean manualYAxis;
 	private double manualMaxYValue;
 	private double manualMinYValue;
+	private GraphViewContentView mContentView;
 
 	/**
 	 * 
@@ -413,61 +435,84 @@ abstract public class GraphView extends LinearLayout {
 
 		viewVerLabels = new VerLabelsView(context);
 		addView(viewVerLabels);
-		addView(new GraphViewContentView(context), new LayoutParams(LayoutParams.FILL_PARENT, LayoutParams.FILL_PARENT, 1));
+
+		mContentView = new GraphViewContentView(context);
+		addView(mContentView, new LayoutParams(LayoutParams.FILL_PARENT, ViewGroup.LayoutParams.FILL_PARENT, 1));
+
+		mScroller = new Scroller(getContext());
+		setFocusable(true);
+		setDescendantFocusability(FOCUS_AFTER_DESCENDANTS);
+		final ViewConfiguration configuration = ViewConfiguration.get(context);
+		mTouchSlop = configuration.getScaledTouchSlop();
+		mMinimumVelocity = configuration.getScaledMinimumFlingVelocity();
+		mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
+
 	}
 
-	private GraphViewData[] _values(int idxSeries) {
-		int size = graphSeries.get(idxSeries).values.size();
-		GraphViewData[] values = graphSeries.get(idxSeries).values.toArray(new GraphViewData[size]);
+	private List<GraphViewData> _values(int idxSeries) {
 		if (viewportStart == 0 && viewportSize == 0) {
 			// all data
-			return values;
+			return graphSeries.get(idxSeries).values;
 		} else {
-			// viewport
-			List<GraphViewData> listData = new ArrayList<GraphViewData>();
-			for (int i = 0; i < values.length; i++) {
-				if (values[i].valueX >= viewportStart) {
-					if (values[i].valueX > viewportStart + viewportSize) {
-						listData.add(values[i]); // one more for nice scrolling
-						break;
-					} else {
-						listData.add(values[i]);
-					}
-				} else {
-					if (listData.isEmpty()) {
-						listData.add(values[i]);
-					}
-					listData.set(0, values[i]); // one before, for nice
-												// scrolling
-				}
+			int size = graphSeries.get(idxSeries).values.size();
+
+			GraphViewData dummyData = new GraphViewData(viewportStart, 0);
+			int start = Math.abs(Collections.binarySearch(graphSeries.get(idxSeries).values, dummyData));
+			// series has no values inside current viewport
+			if (start > size) {
+				return null;
 			}
-			return listData.toArray(new GraphViewData[listData.size()]);
+
+			start = Math.max(start-2, 0);
+
+			dummyData = new GraphViewData(viewportStart + viewportSize, 0);
+			int end = Math.abs(Collections.binarySearch(graphSeries.get(idxSeries).values, dummyData));
+
+			end = Math.min(end+1, size);
+
+			return graphSeries.get(idxSeries).values.subList(start, end);
+
 		}
+	}
+
+	protected void onAddSeries(GraphViewSeries series) {
+
+	}
+
+	protected void onRemoveSeries(GraphViewSeries series) {
+
+	}
+
+	protected void onAddToSeries(GraphViewSeries series, GraphViewData data) {
+
 	}
 
 	public void addSeries(GraphViewSeries series) {
 		graphSeries.add(series);
-		this.invalidate();
+		onAddSeries(series);
+		mContentView.invalidate();
 	}
 
 	public void removeSeries(GraphViewSeries series) {
 		graphSeries.remove(series);
-		this.invalidate();
+		onRemoveSeries(series);
+		mContentView.invalidate();
 	}
 
 	public void toggleSeries(GraphViewSeries series) {
+		// verlabels = null;
 		if (graphSeries.contains(series)) {
-			removeSeries(series);
-		} else {
-			addSeries(series);
+			boolean visible = series.isVisible();
+			series.setVisible(!visible);
+			horlabels = null;
+			this.mContentView.invalidate();
 		}
-		horlabels = null;
-		verlabels = null;
 	}
 
 	public synchronized void addToSeries(int index, GraphViewData data) {
 		GraphViewSeries series = graphSeries.get(index);
 		series.add(data);
+		onAddToSeries(series, data);
 		horlabels = null;
 		verlabels = null;
 	}
@@ -517,7 +562,7 @@ abstract public class GraphView extends LinearLayout {
 		}
 	}
 
-	abstract public void drawSeries(Canvas canvas, int color, GraphViewData[] values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY,
+	abstract public void drawSeries(Canvas canvas, int color, List<GraphViewData> values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY,
 			float horstart);
 
 	/**
@@ -585,13 +630,13 @@ abstract public class GraphView extends LinearLayout {
 			return viewportStart + viewportSize;
 		} else {
 			double maxX = Double.MIN_VALUE;
-			for (GraphViewSeries series: graphSeries){
-				if (series.getMaxX()> maxX){
+			for (GraphViewSeries series : graphSeries) {
+				if (series.getMaxX() > maxX) {
 					maxX = series.getMaxX();
 				}
 			}
-			if (graphSeries.size()==0){
-				maxX = GraphViewConfig.DEFAULT_MAX_X;
+			if (graphSeries.size() == 0) {
+				maxX = GraphViewSeries.DEFAULT_MAX_X;
 			}
 
 			return maxX;
@@ -604,13 +649,13 @@ abstract public class GraphView extends LinearLayout {
 			largest = manualMaxYValue;
 		} else {
 			largest = Double.MIN_VALUE;
-			for (GraphViewSeries series: graphSeries){
-				if (series.getMaxY()> largest){
+			for (GraphViewSeries series : graphSeries) {
+				if (series.getMaxY() > largest) {
 					largest = series.getMaxY();
 				}
 			}
-			if (graphSeries.size()==0){
-				largest = GraphViewConfig.DEFAULT_MAX_Y;
+			if (graphSeries.size() == 0) {
+				largest = GraphViewSeries.DEFAULT_MAX_Y;
 			}
 		}
 		return largest;
@@ -621,17 +666,17 @@ abstract public class GraphView extends LinearLayout {
 		if (!ignoreViewport && viewportSize != 0) {
 			return viewportStart;
 		} else {
-			double minX = Double.MAX_VALUE;			
-			for (GraphViewSeries series: graphSeries) {
-				if (series.getMinX()<minX){
+			double minX = Double.MAX_VALUE;
+			for (GraphViewSeries series : graphSeries) {
+				if (series.getMinX() < minX) {
 					minX = series.getMinX();
 				}
 			}
-			if (graphSeries.size()==0){
-				minX = GraphViewConfig.DEFAULT_MIN_X;
+			if (graphSeries.size() == 0) {
+				minX = GraphViewSeries.DEFAULT_MIN_X;
 			}
 
-			return minX;			
+			return minX;
 		}
 	}
 
@@ -641,13 +686,13 @@ abstract public class GraphView extends LinearLayout {
 			smallest = manualMinYValue;
 		} else {
 			smallest = Double.MAX_VALUE;
-			for (GraphViewSeries series: graphSeries){
-				if (series.getMinY() < smallest){
+			for (GraphViewSeries series : graphSeries) {
+				if (series.getMinY() < smallest) {
 					smallest = series.getMinY();
 				}
 			}
-			if (graphSeries.size()==0){
-				smallest = GraphViewConfig.DEFAULT_MIN_Y;
+			if (graphSeries.size() == 0) {
+				smallest = GraphViewSeries.DEFAULT_MIN_Y;
 			}
 		}
 		return smallest;

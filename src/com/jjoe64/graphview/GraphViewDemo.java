@@ -3,8 +3,8 @@ package com.jjoe64.graphview;
 import android.app.Activity;
 import android.os.Bundle;
 
-import com.jjoe64.graphview.GraphView.GraphViewData;
-import com.jjoe64.graphview.GraphView.GraphViewSeries;
+import com.jjoe64.graphs.LineGraphView;
+import com.jjoe64.graphview.GraphViewSeries.GraphViewData;
 
 /**
  * GraphViewDemo creates some dummy data to demonstrate the GraphView component.
