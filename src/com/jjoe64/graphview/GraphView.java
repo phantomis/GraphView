@@ -763,6 +763,17 @@ abstract public class GraphView extends LinearLayout {
 		manualYAxis = true;
 	}
 
+	public boolean isManualYAxisBounds(){
+		return manualYAxis;
+	}
+	public double getManualMinYValue(){
+		return manualMinYValue;
+	}
+	public double getManualMaxYValue(){
+		return manualMaxYValue;
+	}
+	
+	
 	/**
 	 * this forces scrollable = true
 	 * 

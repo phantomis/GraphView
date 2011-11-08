@@ -166,9 +166,17 @@ public class LineGraphView extends GraphView {
 		mViewPortMatrix.postTranslate(0,graphheight);
 		//3. adjust for borders
 		mViewPortMatrix.postTranslate(horstart, border);
+		double yVal,xVal;
 		for (int i = 0; i < values.size(); i++) {
-			mPoints[0] = (float)values.get(i).valueX;
-			mPoints[1] = (float)values.get(i).valueY;
+			xVal = values.get(i).valueX;
+			yVal = values.get(i).valueY;
+			
+			
+			if (isManualYAxisBounds() && yVal>getManualMaxYValue()){
+				continue;
+			}
+			mPoints[0] = (float)xVal;
+			mPoints[1] = (float)yVal;
 			mViewPortMatrix.mapPoints(mPoints);
 
 			if (i > 0) {
