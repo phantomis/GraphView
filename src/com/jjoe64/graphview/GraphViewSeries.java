@@ -38,7 +38,7 @@ public class GraphViewSeries {
 	final String description;
 	final int color;
 	private double minX, maxX, minY, maxY;
-	private boolean mIsVisible = false;
+	private boolean mIsVisible = true;
 	final ArrayList<GraphViewData> values = new ArrayList<GraphViewData>();
 	private final Comparator<GraphViewData> mYDataComparator = new YDataComparator();
 	
@@ -88,6 +88,10 @@ public class GraphViewSeries {
 		this(description, (color == null) ? 0xff0077cc : color, Arrays.asList(values));
 	}
 
+	public GraphViewSeries(){
+		this(null,0xff0077cc,Collections.<GraphViewData> emptyList());
+	}
+	
 	public GraphViewSeries(String description, Integer color, List<GraphViewData> values) {
 		this.description = description;
 		if (color == null) {
@@ -146,9 +150,12 @@ public class GraphViewSeries {
 	}
 	
 	public synchronized void add(GraphViewData data){
-		GraphViewData last = this.values.get(values.size()-1);
-		if (data.valueX <= last.valueX){
-			throw new IllegalArgumentException("x value must be larger than the last x values in the series");
+		final int lastIndex = values.size()-1;
+		if (lastIndex>0) {
+			GraphViewData last = this.values.get(lastIndex);
+			if (data.valueX <= last.valueX){
+				throw new IllegalArgumentException("x value must be larger than the last x values in the series");
+			}
 		}
 		this.values.add(data);
 		updateAllMinMaxValues();

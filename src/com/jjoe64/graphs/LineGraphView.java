@@ -1,5 +1,6 @@
 package com.jjoe64.graphs;
 
+import java.util.Date;
 import java.util.List;
 import java.util.WeakHashMap;
 
@@ -9,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.text.format.DateFormat;
 import android.util.AttributeSet;
 
 import com.jjoe64.graphview.GraphView;
@@ -24,6 +26,9 @@ import com.jjoe64.graphview.GraphViewSeries.GraphViewData;
  *         General Public License (LGPL) http://www.gnu.org/licenses/lgpl.html
  */
 public class LineGraphView extends GraphView {
+	
+	/**used to draw a circle at each point*/
+	private Paint mCirclePaint;
 	
 	/**used to fill the area below the graph line*/
 	private Paint mFillPaint;
@@ -50,11 +55,17 @@ public class LineGraphView extends GraphView {
 	/**helpers to avoit 'new' during draw calls*/
 	private final float[] mPoints =new float[2];
 	private Path mPath = new Path();
+	private Path mCirclesPath = new Path();
 	private Path mClosedPath = new Path();
+	
+	/**used for formatting the labels*/
+	private java.text.DateFormat mDateFormat = null;
+	private Date mDate = new Date();
 	
 	WeakHashMap<GraphViewSeries, Path> mCachedPath = new WeakHashMap<GraphViewSeries, Path>();
 	
 	private void init(){
+		
 		mFillPaint = new Paint() {
 			{
 				setStyle(Paint.Style.FILL);
@@ -67,7 +78,6 @@ public class LineGraphView extends GraphView {
 				setStyle(Paint.Style.STROKE);
 				setStrokeCap(Paint.Cap.ROUND);
 				setStrokeWidth(2.0f);
-				//setMaskFilter(new BlurMaskFilter(3, Blur.SOLID));
 				setAntiAlias(true);
 			}
 		};
@@ -80,6 +90,13 @@ public class LineGraphView extends GraphView {
 				setStrokeCap(Cap.ROUND);
 			}
 		};
+		
+		mCirclePaint = new Paint(){
+			{
+				setStyle(Paint.Style.FILL);
+				setAntiAlias(true);				
+			}
+		};
 	}
 	
 	public LineGraphView(Context context){
@@ -90,6 +107,12 @@ public class LineGraphView extends GraphView {
 	public LineGraphView(Context context, AttributeSet set) {
 		super(context, set);
 		init();
+	}
+	
+	@Override
+	protected void onViewportChanged() {
+		super.onViewportChanged();
+		
 	}
 	
 	/**
@@ -125,11 +148,14 @@ public class LineGraphView extends GraphView {
 		float lastY = 0;
 		mPath = new Path(); //bug with hardware acceleration forces me to create a new path
 		mPath.incReserve(values.size());
-
+		mCirclesPath = new Path();
+		mCirclesPath.incReserve(values.size());
+		
+		
 		mInnerPaint.setColor(color);
 		mOuterPaint.setColor(calculateOuterColor(color));
 		mFillPaint.setColor(calculateFillColor(color));
-
+		mCirclePaint.setColor(color);
 		/*transform data points into screen space*/
 		mViewPortMatrix.reset();
 		//1. scale
@@ -140,9 +166,7 @@ public class LineGraphView extends GraphView {
 		mViewPortMatrix.postTranslate(0,graphheight);
 		//3. adjust for borders
 		mViewPortMatrix.postTranslate(horstart, border);
-		
 		for (int i = 0; i < values.size(); i++) {
-			
 			mPoints[0] = (float)values.get(i).valueX;
 			mPoints[1] = (float)values.get(i).valueY;
 			mViewPortMatrix.mapPoints(mPoints);
@@ -152,11 +176,12 @@ public class LineGraphView extends GraphView {
 					mPath.quadTo(lastX, lastY, (mPoints[0]+ lastX) / 2, (mPoints[1]+lastY)/2);
 				} else {
 					mPath.lineTo(mPoints[0], mPoints[1]);					
-				}
+				}				
 			} else {
 				startX = mPoints[0];
 				mPath.moveTo(mPoints[0], mPoints[1]);
 			}
+			mCirclesPath.addCircle(mPoints[0], mPoints[1], 3, Path.Direction.CW);			
 			lastX = mPoints[0];
 			lastY = mPoints[1];
 		}
@@ -176,6 +201,20 @@ public class LineGraphView extends GraphView {
 		}
 		canvas.drawPath(mPath, mOuterPaint);
 		canvas.drawPath(mPath, mInnerPaint);		
+		canvas.drawPath(mCirclesPath, mCirclePaint);		
+	}
+	
+	@Override
+	protected String formatLabel(double value, boolean isValueX) {
+		if (isValueX){
+			if (mDateFormat == null){
+				mDateFormat = DateFormat.getTimeFormat(getContext());
+			}
+			mDate.setTime((long)value);
+			return mDateFormat.format(mDate);			
+		} else {
+			return super.formatLabel(value, isValueX);
+		}
 	}
 
 	/**

@@ -43,7 +43,7 @@ abstract public class GraphView extends LinearLayout {
 		static final float VERTICAL_LABEL_WIDTH = 100;
 		static final float HORIZONTAL_LABEL_HEIGHT = 80;
 	}
-
+	
 	private boolean mIsBeingDragged = false;
 	/**
 	 * Position of the last motion event.
@@ -60,7 +60,8 @@ abstract public class GraphView extends LinearLayout {
 	private VelocityTracker mVelocityTracker;
 
 	private boolean canScroll() {
-		if (scrollable && viewportSize < getMaxX(true)) {
+		final double diffX = getMaxX(true) -getMinX(true);
+		if (scrollable && viewportSize < diffX) {
 			return true;
 		}
 		return false;
@@ -79,9 +80,10 @@ abstract public class GraphView extends LinearLayout {
 
 		}
 
-		public void onViewportChanghed(){
+		public void onViewportChanged(){
 			final double scale = getWidth() / viewportSize;
-			mTotalGraphWidth = getMaxX(true) * scale;			
+			mTotalGraphWidth = getMaxX(true) * scale;		
+			this.invalidate();
 		}
 		
 		/**
@@ -214,14 +216,6 @@ abstract public class GraphView extends LinearLayout {
 
 	}
 
-	/**
-	 * Fling the scroll view
-	 * 
-	 * @param velocityX
-	 *            The initial velocity in the X direction. Positive numbers mean
-	 *            that the finger/curor is moving down the screen, which means
-	 *            we want to scroll towards the left.
-	 */
 	public void fling(int velocityX) {
 		int width = (int) mContentView.mTotalGraphWidth;
 		int right = (int) mContentView.graphwidth;
@@ -310,12 +304,10 @@ abstract public class GraphView extends LinearLayout {
 			scaleDetector.onTouchEvent(ev);
 			scaleDetector.isInProgress();
 		}
-
 		
 		if (!canScroll()) {
 			return false;
 		}
-
 
 		if (mVelocityTracker == null) {
 			mVelocityTracker = VelocityTracker.obtain();
@@ -365,6 +357,8 @@ abstract public class GraphView extends LinearLayout {
 	public enum LegendAlign {
 		TOP, MIDDLE, BOTTOM
 	}
+	
+	
 
 	private class VerLabelsView extends View {
 		/**
@@ -454,7 +448,7 @@ abstract public class GraphView extends LinearLayout {
 
 		mContentView = new GraphViewContentView(context);
 		addView(mContentView, new LayoutParams(LayoutParams.FILL_PARENT, ViewGroup.LayoutParams.FILL_PARENT, 1));
-
+		
 		mScroller = new Scroller(getContext());
 		setFocusable(true);
 		setDescendantFocusability(FOCUS_AFTER_DESCENDANTS);
@@ -526,11 +520,17 @@ abstract public class GraphView extends LinearLayout {
 	}
 
 	public synchronized void addToSeries(int index, GraphViewData data) {
-		GraphViewSeries series = graphSeries.get(index);
-		series.add(data);
-		onAddToSeries(series, data);
-		horlabels = null;
-		verlabels = null;
+		if (graphSeries.size()==0){
+			GraphViewSeries series = new GraphViewSeries(new GraphViewData[]{data});
+			this.addSeries(series);
+		} else {
+			GraphViewSeries series = graphSeries.get(index);
+			series.add(data);
+			onAddToSeries(series, data);
+			horlabels = null;
+			verlabels = null;
+			this.mContentView.invalidate();
+		}		
 	}
 
 	public GraphViewData getData(int seriesIndex, int dataIndex) {
@@ -802,7 +802,8 @@ abstract public class GraphView extends LinearLayout {
 					verlabels = null;
 					horlabels = null;
 					numberformatter = null;
-					mContentView.onViewportChanghed();
+					mContentView.onViewportChanged();
+					onViewportChanged();
 					invalidate();
 					viewVerLabels.invalidate();
 					return true;
@@ -835,6 +836,10 @@ abstract public class GraphView extends LinearLayout {
 	public void setVerticalLabels(String[] verlabels) {
 		this.verlabels = verlabels;
 	}
+	
+	protected void onViewportChanged() {
+		mContentView.onViewportChanged();
+	}
 
 	/**
 	 * set's the viewport for the graph.
@@ -846,6 +851,24 @@ abstract public class GraphView extends LinearLayout {
 	public void setViewPort(double start, double size) {
 		viewportStart = start;
 		viewportSize = size;
-		mContentView.onViewportChanghed();
+		onViewportChanged();
+	}
+	public void setViewPortSize(double size){
+		if (viewportSize==0){
+			moveViewPortStartToBeginning();
+		}
+		viewportSize = size;
+		onViewportChanged();
+	}
+	public void moveViewPortStartToTheEnd(){
+		double newViewPortStart = getMaxX(true) - viewportSize;
+		double min =  getMinX(true);
+		viewportStart = Math.max(newViewPortStart, min);
+		onViewportChanged();
+	}
+	
+	public void moveViewPortStartToBeginning(){
+		viewportStart = getMinX(true);
+		onViewportChanged();
 	}
 }
