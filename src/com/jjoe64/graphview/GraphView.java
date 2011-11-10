@@ -12,7 +12,6 @@ import android.graphics.Paint;
 import android.graphics.Paint.Align;
 import android.graphics.RectF;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -44,6 +43,10 @@ abstract public class GraphView extends LinearLayout {
 		static final float HORIZONTAL_LABEL_HEIGHT = 80;
 	}
 	
+	public static interface ViewportChangeListener {
+		void onViewportChanged(double start, double size);
+	}
+	
 	private boolean mIsBeingDragged = false;
 	/**
 	 * Position of the last motion event.
@@ -53,11 +56,17 @@ abstract public class GraphView extends LinearLayout {
 	private int mTouchSlop;
 	private int mMinimumVelocity;
 	private int mMaximumVelocity;
+	private ViewportChangeListener mViewPortListener;
 
 	/**
 	 * Determines speed during touch scrolling
 	 */
 	private VelocityTracker mVelocityTracker;
+	
+	
+	public void setViewportListener(ViewportChangeListener listener){
+		mViewPortListener = listener;
+	}
 
 	private boolean canScroll() {
 		final double diffX = getMaxX(true) -getMinX(true);
@@ -69,22 +78,27 @@ abstract public class GraphView extends LinearLayout {
 
 	private class GraphViewContentView extends View {
 		private float graphwidth;
-		double mTotalGraphWidth;
-		double mCurrentScrollX;
+		double mScale = 1;
 
+		
 		@Override
-		protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-			super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-			final double scale = getWidth() / viewportSize;
-			mTotalGraphWidth = getMaxX(true) * scale;
-
+		protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+			super.onLayout(changed, left, top, right, bottom);
+			if (changed){
+				mScale = (right-left) / viewportSize;
+			}
 		}
 
 		public void onViewportChanged(){
-			final double scale = getWidth() / viewportSize;
-			mTotalGraphWidth = getMaxX(true) * scale;		
-			this.invalidate();
+			synchronized (GraphView.this) {
+				if (viewportSize>0 && getWidth() > 0){
+					mScale = getWidth() / viewportSize;
+					horlabels = null;
+					this.invalidate();
+				}
+			}
 		}
+		
 		
 		/**
 		 * @param context
@@ -94,15 +108,18 @@ abstract public class GraphView extends LinearLayout {
 			setLayoutParams(new LayoutParams(LayoutParams.FILL_PARENT, LayoutParams.FILL_PARENT));
 		}
 
+		private int mLastScroll;
+		
 		public void computeScroll() {
 
 			if (mScroller.computeScrollOffset()) {
 				int x = mScroller.getCurrX();
-				onMoveGesture((float) (mCurrentScrollX - x));
-				mCurrentScrollX = x;
+				onMoveGesture((float) (mLastScroll - x));
+				mLastScroll = x;
 				// Keep on drawing until the animation has finished.
 				postInvalidate();
-			}
+			} 
+			
 		}
 
 		/**
@@ -111,8 +128,8 @@ abstract public class GraphView extends LinearLayout {
 		@Override
 		protected void onDraw(Canvas canvas) {
 			synchronized (GraphView.this) {
-
 				computeScroll();
+
 				// normal
 				paint.setStrokeWidth(0);
 
@@ -186,45 +203,47 @@ abstract public class GraphView extends LinearLayout {
 				}
 			}
 		}
+		public void fling(int velocityX) {
+			double mTotalGraphWidth;
+			mTotalGraphWidth = (getMaxX(true)-getMinX(true)) * mScale;
 
+			int width = (int) mTotalGraphWidth;
+			int right = (int) graphwidth;
+			//convert viewportstart to screen coords
+			final double screenViewPortStart = ((viewportStart - getMinX(true))*mScale);
+			mLastScroll = (int) screenViewPortStart;
+		
+			mScroller.fling((int) (screenViewPortStart), 0, velocityX, 0, 0,  width-right, 0, 0);
+
+			invalidate();
+		}
+
+		
 		private void onMoveGesture(float f) {
 			// view port update
 			if (viewportSize != 0 && graphSeries.size() != 0) {
 				double maxX = getMaxX(true);
+				double minX = getMinX(true);
 				if (viewportStart + viewportSize >= maxX && f < 0) {
 					return;
 				}
-				final double scale = viewportSize / graphwidth;
-
-				viewportStart -= f * scale;
-
+				viewportStart -= f / mScale;
 				// minimal and maximal view limit
-				double minX = getMinX(true);
 				if (viewportStart < minX) {
 					viewportStart = minX;
 				} else if (viewportStart + viewportSize > maxX) {
 					viewportStart = maxX - viewportSize;
 				}
-
 				// labels have to be regenerated
 				horlabels = null;
 				verlabels = null;
+				GraphView.this.onViewportChanged(false);
 				viewVerLabels.invalidate();
 			}
-			invalidate();
 		}
 
 	}
 
-	public void fling(int velocityX) {
-		int width = (int) mContentView.mTotalGraphWidth;
-		int right = (int) mContentView.graphwidth;
-		Log.i("FLING","velocity = " + velocityX + " + maxx = " + (width-right));
-
-		mScroller.fling((int) mContentView.mCurrentScrollX, 0, velocityX, 0, 0,  width-right, 0, 0);
-
-		mContentView.invalidate();
-	}
 
 	@Override
 	public boolean onInterceptTouchEvent(MotionEvent ev) {		
@@ -306,7 +325,7 @@ abstract public class GraphView extends LinearLayout {
 		}
 		
 		if (!canScroll()) {
-			return false;
+			return true;
 		}
 
 		if (mVelocityTracker == null) {
@@ -335,6 +354,7 @@ abstract public class GraphView extends LinearLayout {
 			final int deltaX = (int) (x - mLastMotionX);
 			mLastMotionX = x;
 			mContentView.onMoveGesture(deltaX);
+			mContentView.invalidate();
 			break;
 		case MotionEvent.ACTION_UP:
 			final VelocityTracker velocityTracker = mVelocityTracker;
@@ -342,7 +362,7 @@ abstract public class GraphView extends LinearLayout {
 			int initialVelocity = (int) velocityTracker.getXVelocity();
 
 			if ((Math.abs(initialVelocity) > mMinimumVelocity)) {
-				fling(-initialVelocity);
+				mContentView.fling(-initialVelocity);
 			}
 
 			if (mVelocityTracker != null) {
@@ -785,19 +805,19 @@ abstract public class GraphView extends LinearLayout {
 			scrollable = true; // automatically forces this
 			scaleDetector = new ScaleGestureDetector(getContext(), new ScaleGestureDetector.SimpleOnScaleGestureListener() {
 				public boolean onScale(ScaleGestureDetector detector) {
-					double newSize = viewportSize * detector.getScaleFactor();
-					double diff = newSize - viewportSize;
+					final double newSize = viewportSize * detector.getScaleFactor();
+					final double diff = newSize - viewportSize;
+					final double minX = getMinX(true);
+					final double maxX = getMaxX(true);
 					viewportStart += diff / 2;
 					viewportSize -= diff;
 					if (diff < 0) {
 						// viewportStart must not be < minX
-						double minX = getMinX(true);
 						if (viewportStart < minX) {
 							viewportStart = minX;
 						}
 
 						// viewportStart + viewportSize must not be > maxX
-						double maxX = getMaxX(true);
 						double overlap = viewportStart + viewportSize - maxX;
 						if (overlap > 0) {
 							// scroll left
@@ -849,7 +869,16 @@ abstract public class GraphView extends LinearLayout {
 	}
 	
 	protected void onViewportChanged() {
-		mContentView.onViewportChanged();
+		this.onViewportChanged(true);	
+	}
+	
+	protected void onViewportChanged(boolean tellChildren) {
+		if (tellChildren){
+			mContentView.onViewportChanged();
+		}
+		if (mViewPortListener!=null){
+			mViewPortListener.onViewportChanged(viewportStart, viewportSize);
+		}
 	}
 
 	/**

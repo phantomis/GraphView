@@ -7,6 +7,7 @@ import java.util.WeakHashMap;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.CornerPathEffect;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -26,46 +27,47 @@ import com.jjoe64.graphview.GraphViewSeries.GraphViewData;
  *         General Public License (LGPL) http://www.gnu.org/licenses/lgpl.html
  */
 public class LineGraphView extends GraphView {
+
+	private static final float CIRCLE_RADIUS = 3f;
 	
-	/**used to draw a circle at each point*/
+	/** used to draw a circle at each point */
 	private Paint mCirclePaint;
-	
-	/**used to fill the area below the graph line*/
+	private Paint mCircleOuterPaint;
+
+	/** used to fill the area below the graph line */
 	private Paint mFillPaint;
-	
+
 	/**
-	 * the graph line is drawn using two lines.
-	 * one outer line which is thicker and darker than
-	 * the inner lighter line
-	 */ 
+	 * the graph line is drawn using two lines. one outer line which is thicker
+	 * and darker than the inner lighter line
+	 */
 	private Paint mInnerPaint;
 	private Paint mOuterPaint;
-	
 
-	/**transforms data points into screen points**/
+	/** transforms data points into screen points **/
 	private final Matrix mViewPortMatrix = new Matrix();
 
-	/**if true the area below the graph line will be filled*/
+	/** if true the area below the graph line will be filled */
 	private boolean drawBackground = false;
-	
-	/** if true graph line will be smoothed by a quadratic fit function*/
+
+	/** if true graph line will be smoothed by a quadratic fit function */
 	private boolean mSmoothLine = false;
 
-	
-	/**helpers to avoit 'new' during draw calls*/
-	private final float[] mPoints =new float[2];
+	/** helpers to avoit 'new' during draw calls */
+	private final float[] mPoints = new float[2];
 	private Path mPath = new Path();
 	private Path mCirclesPath = new Path();
 	private Path mClosedPath = new Path();
-	
-	/**used for formatting the labels*/
+	private CornerPathEffect mPathEffect = new CornerPathEffect(5);
+
+	/** used for formatting the labels */
 	private java.text.DateFormat mDateFormat = null;
 	private Date mDate = new Date();
-	
+
 	WeakHashMap<GraphViewSeries, Path> mCachedPath = new WeakHashMap<GraphViewSeries, Path>();
-	
-	private void init(){
-		
+
+	private void init() {
+
 		mFillPaint = new Paint() {
 			{
 				setStyle(Paint.Style.FILL);
@@ -90,62 +92,72 @@ public class LineGraphView extends GraphView {
 				setStrokeCap(Cap.ROUND);
 			}
 		};
-		
-		mCirclePaint = new Paint(){
+
+		mCirclePaint = new Paint() {
 			{
 				setStyle(Paint.Style.FILL);
-				setAntiAlias(true);				
+				setAntiAlias(true);
+			}
+		};
+		
+		mCircleOuterPaint = new Paint(){{
+			setStyle(Paint.Style.STROKE);
+			setAntiAlias(true);
+			setStrokeWidth(CIRCLE_RADIUS+.5f);
+			setStrokeCap(Cap.ROUND);
 			}
 		};
 	}
-	
-	public LineGraphView(Context context){
+
+	public LineGraphView(Context context) {
 		super(context);
 		init();
 	}
-	
+
 	public LineGraphView(Context context, AttributeSet set) {
 		super(context, set);
 		init();
 	}
-	
+
 	@Override
 	protected void onViewportChanged() {
 		super.onViewportChanged();
-		
+
 	}
-	
+
 	/**
-	 * returns the color value which is used to draw the outer path the graph line
+	 * returns the color value which is used to draw the outer path the graph
+	 * line
+	 * 
 	 * @param innerColor
 	 * @return color which is half as dark as innerColor
 	 */
-	private int calculateOuterColor(int innerColor){
+	private int calculateOuterColor(int innerColor) {
 		int a = Color.alpha(innerColor);
 		int r = Color.red(innerColor);
 		int g = Color.green(innerColor);
 		int b = Color.blue(innerColor);
-		return Color.argb(a, r>>1, g>>1, b>>1);
+		return Color.argb(a, r >> 1, g >> 1, b >> 1);
 	}
+
 	/**
 	 * returns the color value which is used to fill the area below graph line
+	 * 
 	 * @param innerColor
 	 * @return transparent version of innerColor
 	 */
-	private int calculateFillColor(int innerColor){
+	private int calculateFillColor(int innerColor) {
 		int a = Color.alpha(innerColor);
 		int r = Color.red(innerColor);
 		int g = Color.green(innerColor);
 		int b = Color.blue(innerColor);
-		return Color.argb(a>>1, r, g, b);
+		return Color.argb(a >> 1, r, g, b);
 	}
-	
+
 
 	@Override
 	public void drawSeries(Canvas canvas, int color, List<GraphViewData> values, float graphwidth, float graphheight, float border, double minX, double minY, double diffX, double diffY, float horstart) {
 		float startX = 0;
-		float lastX = 0;
-		float lastY = 0;
 		mPath = new Path(); //bug with hardware acceleration forces me to create a new path
 		mPath.incReserve(values.size());
 		mCirclesPath = new Path();
@@ -156,6 +168,7 @@ public class LineGraphView extends GraphView {
 		mOuterPaint.setColor(calculateOuterColor(color));
 		mFillPaint.setColor(calculateFillColor(color));
 		mCirclePaint.setColor(color);
+		mCircleOuterPaint.setColor(calculateOuterColor(color));
 		/*transform data points into screen space*/
 		mViewPortMatrix.reset();
 		//1. scale
@@ -172,26 +185,22 @@ public class LineGraphView extends GraphView {
 			yVal = values.get(i).valueY;
 			
 			
-			if (isManualYAxisBounds() && yVal>getManualMaxYValue()){
-				continue;
+			/*clamp to bounds*/
+			if (isManualYAxisBounds()) { 
+				yVal = Math.min(yVal,getManualMaxYValue());
+				yVal = Math.max(yVal,getManualMinYValue());
 			}
 			mPoints[0] = (float)xVal;
 			mPoints[1] = (float)yVal;
 			mViewPortMatrix.mapPoints(mPoints);
 
 			if (i > 0) {
-				if (mSmoothLine){
-					mPath.quadTo(lastX, lastY, (mPoints[0]+ lastX) / 2, (mPoints[1]+lastY)/2);
-				} else {
-					mPath.lineTo(mPoints[0], mPoints[1]);					
-				}				
+				mPath.lineTo(mPoints[0], mPoints[1]);
 			} else {
 				startX = mPoints[0];
 				mPath.moveTo(mPoints[0], mPoints[1]);
 			}
-			mCirclesPath.addCircle(mPoints[0], mPoints[1], 3, Path.Direction.CW);			
-			lastX = mPoints[0];
-			lastY = mPoints[1];
+			mCirclesPath.addCircle(mPoints[0], mPoints[1], CIRCLE_RADIUS, Path.Direction.CW);			
 		}
 		
 		if (mSmoothLine){
@@ -207,19 +216,27 @@ public class LineGraphView extends GraphView {
 			mClosedPath.close();
 			canvas.drawPath(mClosedPath, mFillPaint);
 		}
+		if (mSmoothLine){
+			mOuterPaint.setPathEffect(mPathEffect);
+			mInnerPaint.setPathEffect(mPathEffect);
+		} else {
+			mOuterPaint.setPathEffect(null);
+			mInnerPaint.setPathEffect(null);
+		}
 		canvas.drawPath(mPath, mOuterPaint);
+		canvas.drawPath(mCirclesPath, mCircleOuterPaint);
 		canvas.drawPath(mPath, mInnerPaint);		
 		canvas.drawPath(mCirclesPath, mCirclePaint);		
 	}
-	
+
 	@Override
 	protected String formatLabel(double value, boolean isValueX) {
-		if (isValueX){
-			if (mDateFormat == null){
+		if (isValueX) {
+			if (mDateFormat == null) {
 				mDateFormat = DateFormat.getTimeFormat(getContext());
 			}
-			mDate.setTime((long)value);
-			return mDateFormat.format(mDate);			
+			mDate.setTime((long) value);
+			return mDateFormat.format(mDate);
 		} else {
 			return super.formatLabel(value, isValueX);
 		}
@@ -227,21 +244,22 @@ public class LineGraphView extends GraphView {
 
 	/**
 	 * 
-	 * @return if true, graph line will be smoothed using a quadratic fit function
+	 * @return if true, graph line will be smoothed using a quadratic fit
+	 *         function
 	 */
-	public boolean getSmoothing(){
+	public boolean getSmoothing() {
 		return mSmoothLine;
 	}
-	
+
 	/**
 	 * 
-	 * @param value 
-	 * 				true to smooth the graph line with a quadratic fit function 
+	 * @param value
+	 *            true to smooth the graph line with a quadratic fit function
 	 */
-	public void setSmoothing(boolean value){
+	public void setSmoothing(boolean value) {
 		this.mSmoothLine = value;
 	}
-	
+
 	public boolean getDrawBackground() {
 		return drawBackground;
 	}

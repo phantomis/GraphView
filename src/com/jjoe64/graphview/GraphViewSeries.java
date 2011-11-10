@@ -153,14 +153,28 @@ public class GraphViewSeries {
 		final int lastIndex = values.size()-1;
 		if (lastIndex>0) {
 			GraphViewData last = this.values.get(lastIndex);
-			if (data.valueX <= last.valueX){
-				throw new IllegalArgumentException("x value must be larger than the last x values in the series");
+			if (data.valueX < last.valueX){
+				throw new IllegalArgumentException(data.valueX + "<" + last.valueX +"! x value must be larger than the last x values in the series");
 			}
 		}
 		this.values.add(data);
 		updateAllMinMaxValues();
 	}
 
+	/**
+	 * finds the element closest to x and returns the y value
+	 * @param x position on x axis
+	 * @return
+	 */
+	public GraphViewData getNearestValue(double x){
+
+		GraphViewData dummyData = new GraphViewData(x, 0);
+		int start = Collections.binarySearch(values, dummyData);
+		if (start<0){
+			start = Math.abs(start)-1;
+		}
+		return values.get(start);
+	}
 	
 	public synchronized double getMinX(){
 		return minX;
