@@ -1,24 +1,10 @@
-# Mac OS X
+.cproject
+.settings/
+.project
 .DS_Store
-
-# generated files
-bin/*
-gen/*
-default.properties
-
-#ECLIPSE.gitignore
-*.pydevproject
-#.project
-.metadata
-tmp/**
-tmp/**/*
+obj/
+bin/
+gen/
 *.tmp
 *.bak
 *.swp
-*~.nib
-local.properties
-project.properties
-#.classpath
-.settings/
-.loadpath
-

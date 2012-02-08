@@ -3,8 +3,8 @@ package com.jjoe64.graphview;
 import android.app.Activity;
 import android.os.Bundle;
 
-import com.jjoe64.graphview.GraphView.GraphViewData;
-import com.jjoe64.graphview.GraphView.GraphViewSeries;
+import com.jjoe64.graphs.LineGraphView;
+import com.jjoe64.graphview.GraphViewSeries.GraphViewData;
 
 /**
  * GraphViewDemo creates some dummy data to demonstrate the GraphView component.
@@ -22,10 +22,7 @@ public class GraphViewDemo extends Activity {
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-		LineGraphView graphView = new LineGraphView(
-				this
-				, "GraphViewDemo"
-		);
+		LineGraphView graphView = new LineGraphView(this);
 		graphView.addSeries(new GraphViewSeries(new GraphViewData[] {
 				new GraphViewData(1, 2.0d)
 				, new GraphViewData(2, 1.5d)
